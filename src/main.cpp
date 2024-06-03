@@ -6,9 +6,6 @@
 #include <espnow.h>
 #include <Adafruit_PWMServoDriver.h>
 
-
-
-
 LiquidCrystal_I2C lcd(0x27,20,4);
 
 const int screenOnDuration = 4000;
@@ -17,6 +14,10 @@ const String version = "1.2.2";
 
 void lcdDisplay(String, String, String, String);
 void ScreenSaver(void);
+void ToggleLight(int);
+void ProcessInput(char);
+
+bool lightStatus[81]; 
 
 Adafruit_PWMServoDriver pwm0 = Adafruit_PWMServoDriver(0x41); // Pins 0-15 B
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x42); // Pins 0-15 I
@@ -28,11 +29,8 @@ Adafruit_PWMServoDriver pwm4 = Adafruit_PWMServoDriver(0x45); // Pins 0-15 O
 // Structure example to receive data
 // Must match the sender structure
 typedef struct struct_message {
-    char a[32];
-    int b;
-    float c;
-    String d;
-    bool e;
+    char a;
+    
 } struct_message;
 
 // Create a struct_message called myData
@@ -41,25 +39,23 @@ struct_message myData;
 // Callback function that will be executed when data is received
 void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
   memcpy(&myData, incomingData, sizeof(myData));
-  lcdDisplay(
-    "Bytes received: " + len,
-   "Char: " + String(myData.a),
-    "Int: " + String(myData.b),
-   "Float: " + String(myData.c)
-  );
-  
-  Serial.print("String: ");
-  Serial.println(myData.d);
-  Serial.println(myData.e);
-  
-  DisplayLight(myData.b);
+  lcdDisplay("Bytes received: " + len, "Bingo Number: "  + String(myData.a), "", "" );
+  ProcessInput(myData.a);
+
 } 
 
+int i = 0;
 
 void setup()
 {
   Wire.begin(D1,D2);
   lcd.init();
+  
+  while(i <= 81){
+    lightStatus[i] = false;
+    i++;
+  }
+
 
   pwm0.begin();
   pwm0.setOscillatorFrequency(27000000);
@@ -119,6 +115,22 @@ void setup()
 }
 
 
+void ProcessInput(char incomingData){
+    switch (incomingData)
+    {
+      case 'A':
+      break;
+        
+    
+      case '*':
+      break;
+
+      default:
+        ToggleLight(int(incomingData));
+      break;
+  }
+
+}
 
 void lcdDisplay(String line1 = "", String line2 = "", String line3 = "", String line4= "" )
 {
@@ -144,8 +156,60 @@ void ScreenSaver(void)
   }
 }
 
-void DisplayLight(int light){
+void ToggleLight(int light){
+  if(lightStatus[light] == false) {
+   
+   if(light <= 15){
+      lightStatus[76] = true; //B Light Up    
+      pwm0.setPWM(0, 4096, 0);
+      
+      lightStatus[light] = true; // Number Lit Up
+      pwm0.setPWM(light, 4096, 0);
+    }
 
+     if(light >= 16 && light <= 30){
+      lightStatus[77] = true; // I Light Up    
+      pwm1.setPWM(0, 4096, 0);
+      
+      lightStatus[light] = true; // Number Lit Up
+      pwm1.setPWM(light, 4096, 0);
+    }
+
+    if(light >= 31 && light <= 45){
+      lightStatus[78] = true; // N Light Up    
+      pwm2.setPWM(0, 4096, 0);
+      
+      lightStatus[light] = true; // Number Lit Up
+      pwm2.setPWM(light, 4096, 0);
+    }
+
+    if(light >= 46 && light <= 60){
+      lightStatus[79] = true; // G Light Up    
+      pwm3.setPWM(0, 4096, 0);
+      
+      lightStatus[light] = true; // Number Lit Up
+      pwm3.setPWM(light, 4096, 0);
+    }
+    
+    if(light >= 61 && light <= 75){
+      lightStatus[80] = true; // O Light Up    
+      pwm4.setPWM(0, 4096, 0);
+      
+      lightStatus[light] = true; // Number Lit Up
+      pwm4.setPWM(light, 4096, 0);
+    }
+
+
+    /*
+      B - 76
+      I - 77
+      N - 78
+      G - 79
+      O - 80
+    */
+
+
+  }
 }
 
 void loop() {

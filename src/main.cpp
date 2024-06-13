@@ -5,6 +5,7 @@
 #include <string.h>
 #include <espnow.h>
 #include <Adafruit_PWMServoDriver.h>
+#include <stdint.h>
 
 /**
  * This firmware is for an ESP82266 
@@ -35,7 +36,32 @@ unsigned long screenSaverRunTime = 0;
 void lcdDisplay(String, String, String, String);
 void ScreenSaver(void);
 void ToggleLight(int);
-void ProcessInput(char);
+void ProcessInput(String);
+
+typedef struct struct_message {
+    //We only need the information coming from keypad.
+    String a;
+    
+} struct_message;
+
+// Create a struct_message called myData
+struct_message myData;
+
+
+void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
+   
+  memcpy(&myData, incomingData, sizeof(myData));
+  lcdDisplay("Bytes received: " + len, "Bingo Number: "  + myData.a, "", "" );
+  
+  #ifdef DEBUG
+  Serial.write("Incoming Data: ");
+  Serial.println(myData.a);
+  #endif
+  
+  
+  ProcessInput(myData.a);
+} 
+
 
 
 /**
@@ -52,30 +78,6 @@ Adafruit_PWMServoDriver pwm2 = Adafruit_PWMServoDriver(0x43); // Pins 0-15 N
 Adafruit_PWMServoDriver pwm3 = Adafruit_PWMServoDriver(0x44); // Pins 0-15 G
 Adafruit_PWMServoDriver pwm4 = Adafruit_PWMServoDriver(0x45); // Pins 0-15 O
 
-
-// Must match the sender structure
-typedef struct struct_message {
-    //We only need the information coming from keypad.
-    char a;
-    
-} struct_message;
-
-// Create a struct_message called myData
-struct_message myData;
-
-
-
-/**
- * This function is part of ESPNOW.
- * This is triggered automatically when any data is recieved for This Device on the ESPNow system.
- */
-void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
-  memcpy(&myData, incomingData, sizeof(myData));
-  lcdDisplay("Bytes received: " + len, "Bingo Number: "  + String(myData.a), "", "" );
-  ProcessInput(myData.a);
-} 
-
-//Define our variables.
 
 //Create array for if the LED Light is On or Off
 bool lightStatus[81]; 
@@ -135,16 +137,11 @@ void setup()
   
   lcdDisplay(
     "Bingo Display Board",
-    "_-_-_-_-_-_-_-_-_-_",
+    "I am the 'Receive Unit'",
     "Firmware " + version,
     "By: Eko Illius"
   );
  
- delay(2000);
-
- // Initialize Serial Monitor
-  Serial.begin(115200);
-  
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
 
@@ -161,38 +158,71 @@ void setup()
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info
   esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
+  
   esp_now_register_recv_cb(OnDataRecv);
 
 }
 
+void ProcessInput(String processMe){
+  #ifdef DEBUG
+    Serial.println("Processing Input: " + processMe);
+  #endif
 
-void ProcessInput(char incomingData){
-    switch (incomingData)
+  char tempNumber[32];
+  uint16_t pos = 0;
+  
+  while (pos < processMe.length())
+  {
+    if ((processMe[pos] < '0') || (processMe[pos] > '9')){
+      #ifdef DEBUG
+        Serial.print("Non Number Char: ");
+        Serial.println( processMe[pos]);
+      #endif
+    }
+    else
     {
-      case 'A':
-      break;
+      #ifdef DEBUG
+        Serial.print("Number Char: ");
+        Serial.println( processMe[pos]);
+      #endif
+  
+      char tmpKey2[2] = {processMe[pos]};
+      strcat(tempNumber, tmpKey2 );
+      memset(tmpKey2, 0, 2);
 
-      case 'B':
-      break;
-
-      case 'C':
-      break;
-
-      case 'D':
-      break;
-
-      case '#':
-      break;
- 
-      case '*':
-      break;
-
-      default:
-      ToggleLight(incomingData);
-      break;
+      #ifdef DEBUG
+        Serial.print("Concat Number: ");
+        Serial.println(tempNumber);
+      #endif
+    }
+      pos++;
   }
+  
+  
+  int val = atoi(tempNumber);
+  memset(tempNumber, 0, 32);
 
+  if ((val >= 1) && (val <= 75))
+  {
+    
+    #ifdef DEBUG
+      Serial1.print("Made Good Number:");
+      Serial.println(val);
+      Serial.println("Toggling Light");
+    #endif
+    
+    ToggleLight(val);
+  }
+  else
+  {
+    
+  #ifdef DEBUG
+    Serial.println("Is Not Proper Bingo Number");
+  #endif
+
+  } 
 }
+
 
 void lcdDisplay(String line1 = "", String line2 = "", String line3 = "", String line4= "" )
 {
@@ -249,7 +279,7 @@ void ToggleLight(int light){
     //During debug announce int out of range.
     #ifdef DEBUG
       Serial.println("Number out of range: " + light);
-      #endif
+    #endif
     return;
   }
   
@@ -266,226 +296,224 @@ void ToggleLight(int light){
   * 
   * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
   */
-  if(light <= 15){
+if(light <= 15){
+
+  //If the light is ON turn it off.
+  if(lightStatus[light]){
+    
+    pwm0.setPWM(light, 0, 4096);
+
+  /**
+   * Loop though each of the values and check if they are now all off.
+   * If they are all off then turn off the B light as well.
+   */
+    for( int l = 1; l<= 15; l++ ){
+      if(!lightStatus[l]){
+        outCount++;
+      }
+    }
+    if(outCount >= 15){
+      lightStatus[76] = false; //B turned Off    
+      pwm0.setPWM(0, 0, 4096);
+    }
+    //Reset the outCount for the next Letter Loop.
+    outCount = 0;
+  }//If the Light is not already ON then turn it on and set the matching table value.
+  else{
+    //Make sure B is light up.
+    if(!lightStatus[76]){
+      lightStatus[76] = true; //B Light Up
+        pwm0.setPWM(0, 4096, 0); // Turn On Relay 0 for B
+    }
+    lightStatus[light] = true; // Number Lit Up
+    pwm0.setPWM(light, 4096, 0);
+  }   
+}
+
+  /**
+  * This second if is for the numbers 16-30, Everything with the letter B happens in this statement.
+  * First checking if the Number is between 16 and 30 then checking if the number is already.
+  * If the light is on we turn it off; then we loop through the other possible lights in this letter.
+  * If they are all of. we turn off the Letter Light. 
+  * 
+  * Else we know the light is off, so we will turn the light on.
+  * Because we are turning on a light, we also need to check if the letter light is on.
+  * If it is not on, then we turn it on.
+  * 
+  * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
+  */
+  if(light >= 16 && light <= 30){
 
     //If the light is ON turn it off.
     if(lightStatus[light]){
       
-      pwm0.setPWM(light, 0, 4096);
+      pwm1.setPWM(light, 0, 4096);
   
     /**
      * Loop though each of the values and check if they are now all off.
      * If they are all off then turn off the B light as well.
      */
-      for( int l = 1; l<= 15; l++ ){
+      for( int l = 16; l<= 30; l++ ){
         if(!lightStatus[l]){
           outCount++;
         }
       }
       if(outCount >= 15){
-        lightStatus[76] = false; //B turned Off    
-        pwm0.setPWM(0, 0, 4096);
+        lightStatus[77] = false; //B turned Off    
+        pwm1.setPWM(0, 0, 4096);
       }
       //Reset the outCount for the next Letter Loop.
       outCount = 0;
     }//If the Light is not already ON then turn it on and set the matching table value.
     else{
-      //Make sure B is light up.
-      if(!lightStatus[76]){
-        lightStatus[76] = true; //B Light Up
-          pwm0.setPWM(0, 4096, 0); // Turn On Relay 0 for B
+      //Make sure I is light up.
+      if(!lightStatus[77]){
+        lightStatus[77] = true; //Light Up I
+          pwm1.setPWM(0, 4096, 0); // Turn On Relay 0 for I
       }
-      lightStatus[light] = true; // Number Lit Up
-      pwm0.setPWM(light, 4096, 0);
-    }   
+          lightStatus[light] = true; // Number Lit Up
+          pwm1.setPWM((light - 15) , 4096, 0);
+    } 
   }
 
-   /**
-    * This second if is for the numbers 16-30, Everything with the letter B happens in this statement.
-    * First checking if the Number is between 16 and 30 then checking if the number is already.
-    * If the light is on we turn it off; then we loop through the other possible lights in this letter.
-    * If they are all of. we turn off the Letter Light. 
-    * 
-    * Else we know the light is off, so we will turn the light on.
-    * Because we are turning on a light, we also need to check if the letter light is on.
-    * If it is not on, then we turn it on.
-    * 
-    * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
-    */
-   if(light >= 16 && light <= 30){
+  /**
+  * This third if is for the numbers 31-45, Everything with the letter B happens in this statement.
+  * First checking if the Number is between 31 and 45 then checking if the number is already.
+  * If the light is on we turn it off; then we loop through the other possible lights in this letter.
+  * If they are all of. we turn off the Letter Light. 
+  * 
+  * Else we know the light is off, so we will turn the light on.
+  * Because we are turning on a light, we also need to check if the letter light is on.
+  * If it is not on, then we turn it on.
+  * 
+  * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
+  */
+  if(light >= 31 && light <= 45){
 
-      //If the light is ON turn it off.
-      if(lightStatus[light]){
-        
-        pwm1.setPWM(light, 0, 4096);
-    
-      /**
-       * Loop though each of the values and check if they are now all off.
-       * If they are all off then turn off the B light as well.
-       */
-        for( int l = 16; l<= 30; l++ ){
-          if(!lightStatus[l]){
-            outCount++;
-          }
+    //If the light is ON turn it off.
+    if(lightStatus[light]){
+      
+      pwm1.setPWM(light, 0, 4096);
+  
+    /**
+     * Loop though each of the values and check if they are now all off.
+     * If they are all off then turn off the B light as well.
+     */
+      for( int l = 31; l<= 45; l++ ){
+        if(!lightStatus[l]){
+          outCount++;
         }
-        if(outCount >= 15){
-          lightStatus[77] = false; //B turned Off    
-          pwm1.setPWM(0, 0, 4096);
-        }
-        //Reset the outCount for the next Letter Loop.
-        outCount = 0;
-      }//If the Light is not already ON then turn it on and set the matching table value.
-      else{
-        //Make sure I is light up.
-        if(!lightStatus[77]){
-          lightStatus[77] = true; //Light Up I
-           pwm1.setPWM(0, 4096, 0); // Turn On Relay 0 for I
-        }
-           lightStatus[light] = true; // Number Lit Up
-           pwm1.setPWM((light - 15) , 4096, 0);
-      } 
-   }
-
-   /**
-    * This third if is for the numbers 31-45, Everything with the letter B happens in this statement.
-    * First checking if the Number is between 31 and 45 then checking if the number is already.
-    * If the light is on we turn it off; then we loop through the other possible lights in this letter.
-    * If they are all of. we turn off the Letter Light. 
-    * 
-    * Else we know the light is off, so we will turn the light on.
-    * Because we are turning on a light, we also need to check if the letter light is on.
-    * If it is not on, then we turn it on.
-    * 
-    * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
-    */
-   if(light >= 31 && light <= 45){
-
-      //If the light is ON turn it off.
-      if(lightStatus[light]){
-        
-        pwm1.setPWM(light, 0, 4096);
-    
-      /**
-       * Loop though each of the values and check if they are now all off.
-       * If they are all off then turn off the B light as well.
-       */
-        for( int l = 31; l<= 45; l++ ){
-          if(!lightStatus[l]){
-            outCount++;
-          }
-        }
-        if(outCount >= 15){
-          lightStatus[78] = false; //I turned Off    
-          pwm2.setPWM(0, 0, 4096);
-        }
-        //Reset the outCount for the next Letter Loop.
-        outCount = 0;
-      }//If the Light is not already ON then turn it on and set the matching table value.
-      else{
-        //Make sure I is light up.
-        if(!lightStatus[78]){
-          lightStatus[78] = true; //Light Up I
-           pwm2.setPWM(0, 4096, 0); // Turn On Relay 0 for I
-        }
-           lightStatus[light] = true; // Number Lit Up
-           pwm2.setPWM((light - 30) , 4096, 0);
-      } 
-   }
-
-   /**
-    * This fourth if is for the numbers 46-60, Everything with the letter B happens in this statement.
-    * First checking if the Number is between 46 and 60 then checking if the number is already.
-    * If the light is on we turn it off; then we loop through the other possible lights in this letter.
-    * If they are all of. we turn off the Letter Light. 
-    * 
-    * Else we know the light is off, so we will turn the light on.
-    * Because we are turning on a light, we also need to check if the letter light is on.
-    * If it is not on, then we turn it on.
-    * 
-    * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
-    */
-   if(light >= 46 && light <= 60){
-
-      //If the light is ON turn it off.
-      if(lightStatus[light]){
-        
-        pwm1.setPWM(light, 0, 4096);
-    
-      /**
-       * Loop though each of the values and check if they are now all off.
-       * If they are all off then turn off the B light as well.
-       */
-        for( int l = 46; l<= 60; l++ ){
-          if(!lightStatus[l]){
-            outCount++;
-          }
-        }
-        if(outCount >= 15){
-          lightStatus[79] = false; //B turned Off    
-          pwm3.setPWM(0, 0, 4096);
-        }
-        //Reset the outCount for the next Letter Loop.
-        outCount = 0;
-      }//If the Light is not already ON then turn it on and set the matching table value.
-      else{
-        //Make sure I is light up.
-        if(!lightStatus[79]){
-          lightStatus[79] = true; //Light Up I
-           pwm3.setPWM(0, 4096, 0); // Turn On Relay 0 for I
-        }
-           lightStatus[light] = true; // Number Lit Up
-           pwm3.setPWM((light - 45) , 4096, 0);
-      } 
-   }
-
-   /**
-    * This fifth if is for the numbers 61-75, Everything with the letter B happens in this statement.
-    * First checking if the Number is between 61 and 75 then checking if the number is already.
-    * If the light is on we turn it off; then we loop through the other possible lights in this letter.
-    * If they are all of. we turn off the Letter Light. 
-    * 
-    * Else we know the light is off, so we will turn the light on.
-    * Because we are turning on a light, we also need to check if the letter light is on.
-    * If it is not on, then we turn it on.
-    * 
-    * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
-    */
-   if(light >= 61 && light <= 75){
-
-      //If the light is ON turn it off.
-      if(lightStatus[light]){
-        
-        pwm4.setPWM(light, 0, 4096);
-    
-      /**
-       * Loop though each of the values and check if they are now all off.
-       * If they are all off then turn off the B light as well.
-       */
-        for( int l = 16; l<= 30; l++ ){
-          if(!lightStatus[l]){
-            outCount++;
-          }
-        }
-        if(outCount >= 15){
-          lightStatus[80] = false; //B turned Off    
-          pwm4.setPWM(0, 0, 4096);
-        }
-        //Reset the outCount for the next Letter Loop.
-        outCount = 0;
-      }//If the Light is not already ON then turn it on and set the matching table value.
-      else{
-        //Make sure I is light up.
-        if(!lightStatus[80]){
-          lightStatus[80] = true; //Light Up I
-           pwm4.setPWM(0, 4096, 0); // Turn On Relay 0 for I
-        }
-           lightStatus[light] = true; // Number Lit Up
-           pwm4.setPWM((light - 60) , 4096, 0);
-      } 
-    }
+      }
+      if(outCount >= 15){
+        lightStatus[78] = false; //I turned Off    
+        pwm2.setPWM(0, 0, 4096);
+      }
+      //Reset the outCount for the next Letter Loop.
+      outCount = 0;
+    }//If the Light is not already ON then turn it on and set the matching table value.
+    else{
+      //Make sure I is light up.
+      if(!lightStatus[78]){
+        lightStatus[78] = true; //Light Up I
+          pwm2.setPWM(0, 4096, 0); // Turn On Relay 0 for I
+      }
+          lightStatus[light] = true; // Number Lit Up
+          pwm2.setPWM((light - 30) , 4096, 0);
+    } 
   }
 
+  /**
+  * This fourth if is for the numbers 46-60, Everything with the letter B happens in this statement.
+  * First checking if the Number is between 46 and 60 then checking if the number is already.
+  * If the light is on we turn it off; then we loop through the other possible lights in this letter.
+  * If they are all of. we turn off the Letter Light. 
+  * 
+  * Else we know the light is off, so we will turn the light on.
+  * Because we are turning on a light, we also need to check if the letter light is on.
+  * If it is not on, then we turn it on.
+  * 
+  * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
+  */
+  if(light >= 46 && light <= 60){
 
+    //If the light is ON turn it off.
+    if(lightStatus[light]){
+      
+      pwm1.setPWM(light, 0, 4096);
+  
+    /**
+     * Loop though each of the values and check if they are now all off.
+     * If they are all off then turn off the B light as well.
+     */
+      for( int l = 46; l<= 60; l++ ){
+        if(!lightStatus[l]){
+          outCount++;
+        }
+      }
+      if(outCount >= 15){
+        lightStatus[79] = false; //B turned Off    
+        pwm3.setPWM(0, 0, 4096);
+      }
+      //Reset the outCount for the next Letter Loop.
+      outCount = 0;
+    }//If the Light is not already ON then turn it on and set the matching table value.
+    else{
+      //Make sure I is light up.
+      if(!lightStatus[79]){
+        lightStatus[79] = true; //Light Up I
+          pwm3.setPWM(0, 4096, 0); // Turn On Relay 0 for I
+      }
+          lightStatus[light] = true; // Number Lit Up
+          pwm3.setPWM((light - 45) , 4096, 0);
+    } 
+  }
+
+  /**
+  * This fifth if is for the numbers 61-75, Everything with the letter B happens in this statement.
+  * First checking if the Number is between 61 and 75 then checking if the number is already.
+  * If the light is on we turn it off; then we loop through the other possible lights in this letter.
+  * If they are all of. we turn off the Letter Light. 
+  * 
+  * Else we know the light is off, so we will turn the light on.
+  * Because we are turning on a light, we also need to check if the letter light is on.
+  * If it is not on, then we turn it on.
+  * 
+  * During all of this we can't forget to update the main array of lightStatus to keep everything in sync.
+  */
+  if(light >= 61 && light <= 75){
+
+    //If the light is ON turn it off.
+    if(lightStatus[light]){
+      
+      pwm4.setPWM(light, 0, 4096);
+  
+    /**
+     * Loop though each of the values and check if they are now all off.
+     * If they are all off then turn off the B light as well.
+     */
+      for( int l = 16; l<= 30; l++ ){
+        if(!lightStatus[l]){
+          outCount++;
+        }
+      }
+      if(outCount >= 15){
+        lightStatus[80] = false; //B turned Off    
+        pwm4.setPWM(0, 0, 4096);
+      }
+      //Reset the outCount for the next Letter Loop.
+      outCount = 0;
+    }//If the Light is not already ON then turn it on and set the matching table value.
+    else{
+      //Make sure I is light up.
+      if(!lightStatus[80]){
+        lightStatus[80] = true; //Light Up I
+          pwm4.setPWM(0, 4096, 0); // Turn On Relay 0 for I
+      }
+          lightStatus[light] = true; // Number Lit Up
+          pwm4.setPWM((light - 60) , 4096, 0);
+    } 
+  }
+}
 void loop() {
   ScreenSaver();
  }
